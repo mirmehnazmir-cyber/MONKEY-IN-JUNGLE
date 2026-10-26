@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jungle Monkey Hand Control</title>
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:#0b1f12;font-family:'Trebuchet MS',system-ui,sans-serif;color:#fff;user-select:none}
+canvas#game{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;pointer-events:none}
+.stat{background:rgba(10,30,15,.68);border:2px solid rgba(255,225,53,.65);border-radius:14px;padding:6px 14px;min-width:100px;text-align:center;backdrop-filter:blur(4px)}
+.stat b{display:block;font-size:26px;color:#ffe135;line-height:1.15}
+.stat span{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85}
+#lives{color:#ff5470!important;letter-spacing:2px}
+#cam{position:fixed;left:12px;bottom:12px;width:300px;border-radius:14px;overflow:hidden;border:2px solid #00f6ff;box-shadow:0 0 22px #00f6ff88;background:#000;transition:width .25s;display:none}
+#cam.big{width:min(62vw,760px)}
+#cam .wrap{position:relative;aspect-ratio:4/3;background:#000}
+#cam video,#cam canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#cam video{opacity:.88}
+#pills{display:flex;gap:6px;padding:6px;background:rgba(0,0,0,.75);justify-content:center;flex-wrap:wrap}
+.pill{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid #567;color:#9ab;transition:.12s}
+.pill.on{background:#00f6ff;color:#012;border-color:#00f6ff;box-shadow:0 0 12px #00f6ff}
+#tools{position:fixed;right:12px;bottom:12px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+button{font:inherit;cursor:pointer}
+.tool{background:rgba(10,30,15,.75);color:#fff;border:1px solid #ffe135aa;border-radius:10px;padding:8px 12px}
+.tool:hover{background:rgba(40,80,30,.9)}
+#hint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);font-size:14px;background:rgba(10,30,15,.6);padding:6px 14px;border-radius:99px;pointer-events:none;white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1000px){#hint{display:none}}
+#pop{position:fixed;top:26%;left:50%;transform:translateX(-50%);font-size:34px;font-weight:800;pointer-events:none;opacity:0;text-shadow:0 3px 10px #000b;white-space:nowrap}
+#pop.show{animation:pop .9s ease-out}
+@keyframes pop{0%{opacity:0;transform:translate(-50%,20px) scale(.6)}20%{opacity:1;transform:translate(-50%,0) scale(1.1)}100%{opacity:0;transform:translate(-50%,-50px) scale(1)}}
+#flash{position:fixed;inset:0;background:#f33;opacity:0;pointer-events:none;transition:opacity .35s}
+#screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,20,10,.72);backdrop-filter:blur(3px);z-index:10}
+.card{max-width:540px;width:92%;background:linear-gradient(160deg,#17391f,#0d2415);border:3px solid #ffe135;border-radius:22px;padding:26px 28px;text-align:center;box-shadow:0 0 40px #000a}
+.card h1{font-size:34px;color:#ffe135;margin-bottom:6px}
+.card p{opacity:.92;line-height:1.5;margin:6px 0}
+.card ul{list-style:none;padding:0;margin:12px 0;text-align:left;display:inline-block}
+.card li{margin:5px 0}
+#startBtn{margin-top:14px;font-size:22px;font-weight:800;color:#2a1a00;background:#ffe135;border:none;border-radius:14px;padding:12px 34px;box-shadow:0 5px 0 #b59a00}
+#startBtn:disabled{opacity:.6}
+#status{min-height:22px;font-size:13px;color:#9fe;margin-top:10px}
+.res{display:flex;gap:10px;justify-content:center;margin:12px 0}
+.res div{background:#0006;border-radius:12px;padding:8px 14px}
+.res b{display:block;font-size:24px;color:#ffe135}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="stat"><b id="sScore">0</b><span>🍌 Bananas</span></div>
+  <div class="stat"><b id="sCal">0</b><span>Calories (kcal)</span></div>
+  <div class="stat"><b id="sTime">00:00</b><span>Time</span></div>
+  <div class="stat"><b id="lives">♥♥♥</b><span>Lives</span></div>
+</div>
+
+<div id="cam">
+  <div class="wrap"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
+  <div id="pills">
+    <span class="pill" id="pHand">✋ HAND</span>
+    <span class="pill" id="pWalk">🖐 RUN</span>
+    <span class="pill" id="pJump">🤏 JUMP</span>
+    <span class="pill" id="pLean">↔ LANE</span>
+  </div>
+</div>
+
+<div id="tools">
+  <button class="tool" id="bCam">🔍 Big camera</button>
+  <button class="tool" id="bPose">🎯 Lane guides: on</button>
+  <button class="tool" id="bCenter">🎯 Recenter (C)</button>
+  <button class="tool" id="bMute">🔊 Music</button>
+</div>
+<div id="hint">🖐 Open hand = run · ✊ Fist = stop · 🤏 Pinch or flick up = jump · ↔ Move hand left/right = lane</div>
+<div id="pop"></div>
+<div id="flash"></div>
+
+<div id="screen">
+  <div class="card" id="card">
+    <h1>🐒 Jungle Monkey 3D</h1>
+    <p>Your hand is the controller. Eat <b>only bananas</b>. Other fruits cost a life!</p>
+    <ul>
+      <li>🖐 <b>Open hand</b> → the monkey runs</li>
+      <li>✊ <b>Make a fist</b> → the monkey stops</li>
+      <li>🤏 <b>Pinch</b> (thumb + index) or <b>flick hand up</b> → jump over logs</li>
+      <li>↔ <b>Move your hand left / centre / right</b> → switch lanes</li>
+    </ul>
+    <p style="font-size:13px;opacity:.75">Hold one hand up in front of the camera in good light. Each banana = 105 kcal.<br>No camera? Keys: ↑/W run, Space jump, ←/→ lanes.</p>
+    <button id="startBtn">▶ START</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script>
+addEventListener('error',e=>{const s=document.getElementById('status');if(s)s.textContent='Error: '+(e.message||'script failed to load (check internet connection)');});
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {FilesetResolver, HandLandmarker} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const WASM='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const KCAL_PER_BANANA=105;
+const LANE_W=2.3;
+
+/* =========================================================
+   THREE.JS SCENE
+========================================================= */
+const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+(function sky(){
+  const c=document.createElement('canvas');c.width=4;c.height=256;const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,256);gr.addColorStop(0,'#4fa9e0');gr.addColorStop(.55,'#a9dfc6');gr.addColorStop(1,'#d9f0c8');
+  g.fillStyle=gr;g.fillRect(0,0,4,256);
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;scene.background=t;
+})();
+scene.fog=new THREE.Fog(0xa9dfc0,24,82);
+const camera=new THREE.PerspectiveCamera(60,1,0.1,200);
+camera.position.set(0,4.2,7.2);camera.lookAt(0,1.6,-6);
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+
+scene.add(new THREE.HemisphereLight(0xe8ffe0,0x2d5a2d,0.95));
+const sun=new THREE.DirectionalLight(0xfff0c0,1.1);sun.position.set(-6,14,6);scene.add(sun);
+
+/* ---- ground ---- */
+function groundTexture(){
+  const S=512,c=document.createElement('canvas');c.width=c.height=S;const g=c.getContext('2d');
+  g.fillStyle='#2f7d3a';g.fillRect(0,0,S,S);
+  for(let i=0;i<3000;i++){g.fillStyle=`hsl(${90+Math.random()*35},${45+Math.random()*25}%,${20+Math.random()*20}%)`;g.fillRect(Math.random()*S,Math.random()*S,2+Math.random()*3,4+Math.random()*9);}
+  // dirt path (plane is 40 wide, path ~9 wide)
+  const x0=S/2-58,x1=S/2+58;
+  g.fillStyle='#7a5a35';g.fillRect(x0,0,x1-x0,S);
+  for(let i=0;i<220;i++){g.fillStyle=Math.random()<.5?'#8c6a40':'#684b2a';g.beginPath();g.arc(x0+Math.random()*(x1-x0),Math.random()*S,2+Math.random()*7,0,7);g.fill();}
+  for(let i=0;i<60;i++){g.fillStyle='#3d8a42';g.beginPath();g.arc(Math.random()<.5?x0+Math.random()*10-5:x1+Math.random()*10-5,Math.random()*S,3+Math.random()*7,0,7);g.fill();}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(1,24);t.anisotropy=8;t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const groundTex=groundTexture();
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(40,240),new THREE.MeshLambertMaterial({map:groundTex}));
+ground.rotation.x=-Math.PI/2;ground.position.z=-80;scene.add(ground);
+
+/* ---- trees, bushes ---- */
+const trunkMat=new THREE.MeshLambertMaterial({color:0x5b3a1e});
+const vineMat=new THREE.MeshLambertMaterial({color:0x3f8f3c});
+const leafMats=[0x1f6b2c,0x2a8a38,0x166026].map(c=>new THREE.MeshLambertMaterial({color:c,flatShading:true}));
+function makeTree(){
+  const g=new THREE.Group();const h=6+Math.random()*6;
+  const t=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.65,h,7),trunkMat);t.position.y=h/2;g.add(t);
+  for(let i=0;i<3;i++){
+    const r=2.2+Math.random()*1.6;
+    const l=new THREE.Mesh(new THREE.IcosahedronGeometry(r,0),leafMats[i%3]);
+    l.position.set((Math.random()-.5)*2.4,h+i*0.9-0.6,(Math.random()-.5)*2.4);g.add(l);
+  }
+  if(Math.random()<.7){
+    const v=new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,4.5,5),vineMat);
+    v.position.set((Math.random()-.5)*2,h-2.4,1.2);g.add(v);
+  }
+  return g;
+}
+const trees=[];
+for(let i=0;i<30;i++){
+  const t=makeTree();const side=i%2?1:-1;
+  t.userData.side=side;t.position.set(side*(6+Math.random()*10),0,8-i*3.4);
+  scene.add(t);trees.push(t);
+}
+const bushes=[];
+const flowerCols=[0xff4d6d,0xffd166,0xffffff,0xc77dff];
+for(let i=0;i<26;i++){
+  const g=new THREE.Group();
+  const b=new THREE.Mesh(new THREE.IcosahedronGeometry(0.7+Math.random()*0.5,0),leafMats[i%3]);b.position.y=0.5;g.add(b);
+  for(let k=0;k<3;k++){const f=new THREE.Mesh(new THREE.SphereGeometry(0.12,6,6),new THREE.MeshBasicMaterial({color:flowerCols[(i+k)%4]}));f.position.set((Math.random()-.5)*1.2,0.7+Math.random()*0.5,(Math.random()-.5)*1.2);g.add(f);}
+  const side=i%2?1:-1;g.userData.side=side;
+  g.position.set(side*(5.2+Math.random()*2),0,8-i*3.9);
+  scene.add(g);bushes.push(g);
+}
+
+/* ---- the monkey ---- */
+const furMat=new THREE.MeshLambertMaterial({color:0x7a4a24});
+const skinMat=new THREE.MeshLambertMaterial({color:0xe9c6a0});
+const snoutMat=new THREE.MeshLambertMaterial({color:0xcf9f78});
+const blackMat=new THREE.MeshBasicMaterial({color:0x111111});
+const whiteMat=new THREE.MeshBasicMaterial({color:0xffffff});
+function sph(r,mat,sx=1,sy=1,sz=1,x=0,y=0,z=0){const m=new THREE.Mesh(new THREE.SphereGeometry(r,16,12),mat);m.scale.set(sx,sy,sz);m.position.set(x,y,z);return m;}
+function limb(len,r,mat,end){
+  const g=new THREE.Group();
+  const m=new THREE.Mesh(new THREE.CapsuleGeometry(r,len,4,8),mat);m.position.y=-(len/2+r);g.add(m);
+  if(end)g.add(sph(r*1.15,end,1,1,1.1,0,-(len+r*1.6),-0.05));
+  return g;
+}
+const monkey=new THREE.Group();scene.add(monkey);
+const body=new THREE.Group();body.position.y=1.0;monkey.add(body);
+body.add(sph(0.5,furMat,1,1.15,0.9));
+body.add(sph(0.38,skinMat,0.9,1,0.5,0,-0.05,-0.32));
+const head=new THREE.Group();head.position.set(0,0.95,-0.05);body.add(head);
+head.add(sph(0.38,furMat));
+head.add(sph(0.27,skinMat,1.05,0.95,0.6,0,-0.07,-0.27));
+for(const s of[-1,1]){
+  head.add(sph(0.075,whiteMat,1,1.1,0.6,s*0.12,0.07,-0.4));
+  head.add(sph(0.04,blackMat,1,1,0.6,s*0.12,0.07,-0.435));
+  head.add(sph(0.15,furMat,0.5,1,1,s*0.4,0.06,0.02));
+  head.add(sph(0.1,skinMat,0.4,0.8,0.8,s*0.43,0.06,-0.02));
+}
+head.add(sph(0.13,snoutMat,1.2,0.8,0.8,0,-0.15,-0.42));
+head.add(sph(0.03,blackMat,1,1,1,-0.04,-0.12,-0.52));head.add(sph(0.03,blackMat,1,1,1,0.04,-0.12,-0.52));
+const armL=limb(0.5,0.11,furMat,skinMat),armR=limb(0.5,0.11,furMat,skinMat);
+armL.position.set(-0.58,0.35,0);armR.position.set(0.58,0.35,0);body.add(armL,armR);
+const legL=limb(0.4,0.13,furMat,skinMat),legR=limb(0.4,0.13,furMat,skinMat);
+legL.position.set(-0.26,0.64,0);legR.position.set(0.26,0.64,0);monkey.add(legL,legR);
+const tail=new THREE.Group();tail.position.set(0,0.75,0.4);monkey.add(tail);
+tail.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0,0,0),new THREE.Vector3(0,-0.15,0.45),new THREE.Vector3(0,0.2,0.9),new THREE.Vector3(0,0.85,0.9),new THREE.Vector3(0,1.1,0.45)]),24,0.07,6),furMat));
+const blob=new THREE.Mesh(new THREE.CircleGeometry(0.7,20),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:.28}));
+blob.rotation.x=-Math.PI/2;blob.position.y=0.03;scene.add(blob);
+
+let phase=0;
+function animateMonkey(dt,level,air,t){
+  phase+=dt*(5+level*9);
+  const sw=Math.sin(phase)*0.95*level;
+  if(air){
+    armL.rotation.x=2.6;armR.rotation.x=2.5;legL.rotation.x=0.9;legR.rotation.x=0.4;
+    body.rotation.x=-0.18;head.rotation.x=0.1;body.position.y=1.0;
+  }else{
+    legL.rotation.x=sw;legR.rotation.x=-sw;armL.rotation.x=-sw*0.9;armR.rotation.x=sw*0.9;
+    body.position.y=1.0+Math.abs(Math.sin(phase))*0.09*level+Math.sin(t*2)*0.015*(1-level);
+    body.rotation.x=-0.12*level;head.rotation.x=Math.sin(phase*2)*0.05*level;
+  }
+  body.rotation.z=Math.sin(phase)*0.06*level;
+  tail.rotation.y=Math.sin(t*3+phase*.5)*0.35;
+  tail.rotation.z=Math.sin(phase)*0.08*level;
+}
+
+/* ---- items ---- */
+const yellowMat=new THREE.MeshLambertMaterial({color:0xffe135,emissive:0x5a4a00});
+const tipMat=new THREE.MeshLambertMaterial({color:0x4a3210});
+const glowMat=new THREE.MeshBasicMaterial({color:0xffe135,transparent:true,opacity:.2,depthWrite:false});
+function mkBanana(){
+  const g=new THREE.Group(),inner=new THREE.Group();inner.position.y=0.32;g.add(inner);
+  const arc=Math.PI*0.75,rot=-Math.PI/2-arc/2;
+  const m=new THREE.Mesh(new THREE.TorusGeometry(0.5,0.12,10,20,arc),yellowMat);m.rotation.z=rot;inner.add(m);
+  for(const a of[rot,rot+arc])inner.add(sph(0.08,tipMat,1,1,1,Math.cos(a)*0.5,Math.sin(a)*0.5,0));
+  inner.add(sph(0.8,glowMat,1,1,1,0,-0.25,0));
+  g.scale.setScalar(1.15);return g;
+}
+function mkApple(){const g=new THREE.Group();g.add(sph(0.38,new THREE.MeshLambertMaterial({color:0xd62828})));
+  const stem=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.2,5),tipMat);stem.position.set(0,.4,0);g.add(stem);
+  g.add(sph(0.1,vineMat,1.6,.4,.8,.1,.45,0));return g;}
+function mkOrange(){const g=new THREE.Group();g.add(sph(0.38,new THREE.MeshLambertMaterial({color:0xff8c1a})));g.add(sph(.07,vineMat,1,.5,1,0,.38,0));return g;}
+function mkGrapes(){const g=new THREE.Group();const m=new THREE.MeshLambertMaterial({color:0x6a2c91});
+  for(let i=0;i<12;i++){const r=i/12;g.add(sph(0.14,m,1,1,1,(Math.random()-.5)*0.4*(1-r*.6),0.3-r*0.55,(Math.random()-.5)*0.4*(1-r*.6)));}return g;}
+function mkMelon(){const g=new THREE.Group();g.add(sph(0.5,new THREE.MeshLambertMaterial({color:0x2e8b3a}),1.15,0.85,0.85));return g;}
+const logMat=new THREE.MeshLambertMaterial({color:0x6b4423});
+const logEnd=new THREE.MeshLambertMaterial({color:0xc89b62});
+function mkLog(){
+  const g=new THREE.Group();
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,2.0,12),[logMat,logEnd,logEnd]);m.rotation.z=Math.PI/2;g.add(m);return g;
+}
+const TEMPL={banana:mkBanana(),apple:mkApple(),orange:mkOrange(),grapes:mkGrapes(),watermelon:mkMelon(),log:mkLog()};
+const items=[];
+function addItem(type,lane,y,z){
+  const mesh=TEMPL[type].clone();mesh.position.set(lane*LANE_W,type==='log'?0.45:y,z);scene.add(mesh);
+  items.push({mesh,type,y:type==='log'?0.45:y,lane,done:false});
+}
+function spawn(){
+  const r=Math.random(),lane=Math.floor(Math.random()*3)-1,z=-86;
+  if(r<0.5){
+    const n=3+Math.floor(Math.random()*3),arc=Math.random()<0.4;
+    for(let i=0;i<n;i++)addItem('banana',lane,arc?0.9+Math.sin(i/(n-1)*Math.PI)*1.8:0.9,z-i*2);
+  }else if(r<0.75){
+    const kinds=['apple','orange','grapes','watermelon'];
+    addItem(kinds[Math.floor(Math.random()*4)],lane,0.9,z);
+    if(Math.random()<0.5){const l2=lane===1?-1:lane+1;addItem(kinds[Math.floor(Math.random()*4)],l2,0.9,z-1);}
+    const bl=lane===0?(Math.random()<.5?-1:1):0;
+    for(let i=0;i<3;i++)addItem('banana',bl===lane?-lane:bl,0.9,z-i*2);
+  }else{
+    addItem('log',lane,0,z);
+    if(Math.random()<0.3){const l2=lane===1?-1:lane+1;addItem('log',l2,0,z);}
+    addItem('banana',lane,2.3,z+1.7);addItem('banana',lane,2.9,z);addItem('banana',lane,2.3,z-1.7);
+  }
+}
+
+/* =========================================================
+   GAME STATE
+========================================================= */
+const G={running:false,over:false,bananas:0,lives:3,time:0,lane:0,y:0,vy:0,level:0,speed:0,spawnAcc:0,nextGap:6,inv:0};
+const input={poseWalk:0,keyWalk:false};
+function resetGame(){
+  for(const it of items)scene.remove(it.mesh);items.length=0;
+  Object.assign(G,{running:true,over:false,bananas:0,lives:3,time:0,lane:0,y:0,vy:0,level:0,speed:0,spawnAcc:0,nextGap:6,inv:0});
+  monkey.position.x=0;
+}
+function setLane(l){G.lane=clamp(l,-1,1);}
+function jump(){if(G.running&&G.y<=0.001&&G.vy===0){G.vy=10.5;sfx('jump');}}
+function pop(text,color='#ffe135'){const p=$('pop');p.textContent=text;p.style.color=color;p.classList.remove('show');void p.offsetWidth;p.classList.add('show');}
+function flash(){const f=$('flash');f.style.transition='none';f.style.opacity='.45';void f.offsetWidth;f.style.transition='opacity .35s';f.style.opacity='0';}
+function hurt(msg){
+  if(G.inv>0)return;
+  G.lives--;G.inv=1.4;flash();pop(msg,'#ff6b81');sfx('bad');
+  if(G.lives<=0)gameOver();
+}
+function gameOver(){
+  G.running=false;G.over=true;
+  $('card').innerHTML=`<h1>Game over 🐒</h1><p>The monkey ate <b>${G.bananas}</b> banana${G.bananas===1?'':'s'}!</p>
+  <div class="res"><div><b>${G.bananas}</b>🍌 score</div><div><b>${G.bananas*KCAL_PER_BANANA}</b>kcal gained</div><div><b>${fmt(G.time)}</b>time</div></div>
+  <button id="startBtn">↻ PLAY AGAIN</button><div id="status"></div>`;
+  $('startBtn').onclick=startGame;$('screen').style.display='flex';
+}
+const fmt=t=>String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');
+
+function update(dt,t){
+  if(G.running){
+    G.time+=dt;
+    const maxSp=Math.min(13+G.time*0.06,22);
+    const target=Math.max(input.poseWalk,input.keyWalk?1:0);
+    G.level+=(target-G.level)*Math.min(1,dt*5);
+    G.speed=maxSp*G.level;
+    G.inv=Math.max(0,G.inv-dt);
+  }else{G.level*=0.9;G.speed=0;}
+  // jump physics
+  if(G.y>0||G.vy>0){G.vy-=24*dt;G.y+=G.vy*dt;if(G.y<=0){G.y=0;G.vy=0;}}
+  monkey.position.x+=(G.lane*LANE_W-monkey.position.x)*Math.min(1,dt*10);
+  monkey.position.y=G.y;
+  blob.position.x=monkey.position.x;blob.scale.setScalar(Math.max(0.5,1-G.y*0.2));
+  monkey.visible=!(G.inv>0&&Math.floor(G.inv*12)%2===0);
+  animateMonkey(dt,G.level,G.y>0.05,t);
+  camera.position.x+=(monkey.position.x*0.5-camera.position.x)*Math.min(1,dt*4);
+  camera.lookAt(camera.position.x*0.5,1.6,-6);
+
+  const dz=G.speed*dt;
+  if(dz>0){
+    groundTex.offset.y+=dz/10;
+    for(const o of trees){o.position.z+=dz;if(o.position.z>14){o.position.z-=102;o.position.x=o.userData.side*(6+Math.random()*10);}}
+    for(const o of bushes){o.position.z+=dz;if(o.position.z>14){o.position.z-=102;o.position.x=o.userData.side*(5.2+Math.random()*2);}}
+    G.spawnAcc+=dz;if(G.spawnAcc>=G.nextGap){G.spawnAcc=0;G.nextGap=9+Math.random()*5;spawn();}
+  }
+  const cy=G.y+1.0;
+  for(let i=items.length-1;i>=0;i--){
+    const it=items[i],m=it.mesh;
+    m.position.z+=dz;
+    if(it.type!=='log')m.rotation.y+=dt*2.5;
+    if(!it.done&&G.running&&Math.abs(m.position.z)<0.85&&Math.abs(m.position.x-monkey.position.x)<1.0){
+      if(it.type==='log'){
+        if(G.y<0.75){it.done=true;hurt('💥 Ouch! Jump over logs!');}
+      }else if(Math.abs(it.y-cy)<0.9){
+        it.done=true;scene.remove(m);
+        if(it.type==='banana'){
+          G.bananas++;pop(`+1 🍌   ${G.bananas*KCAL_PER_BANANA} kcal`);sfx('eat');
+        }else{hurt(`🚫 Only bananas! (${it.type})`);}
+      }
+    }
+    if(m.position.z>7){scene.remove(m);items.splice(i,1);}
+  }
+  // HUD
+  $('sScore').textContent=G.bananas;
+  $('sCal').textContent=G.bananas*KCAL_PER_BANANA;
+  $('sTime').textContent=fmt(G.time);
+  $('lives').textContent='♥'.repeat(Math.max(0,G.lives))+'♡'.repeat(Math.max(0,3-G.lives));
+}
+
+/* =========================================================
+   AUDIO: monkey song (original jungle tune) + sfx
+========================================================= */
+let actx,musicGain,sfxGain,noiseBuf,muted=false,musicTimer=null,nextT=0,stepNo=0;
+const BPM=128,STEP=60/BPM/2;
+const MEL=[64,67,69,67,64,67,69,null, 72,69,67,64,67,64,62,null, 64,67,69,67,64,67,69,72, 69,67,64,62,60,null,60,null];
+const BASS=[48,48,45,48];
+const mf=m=>440*Math.pow(2,(m-69)/12);
+function initAudio(){
+  if(actx)return;
+  actx=new (window.AudioContext||window.webkitAudioContext)();
+  musicGain=actx.createGain();musicGain.gain.value=0.5;musicGain.connect(actx.destination);
+  sfxGain=actx.createGain();sfxGain.gain.value=0.7;sfxGain.connect(actx.destination);
+  noiseBuf=actx.createBuffer(1,actx.sampleRate*0.3,actx.sampleRate);
+  const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+}
+function env(g,t,peak,dec){g.gain.setValueAtTime(0.0001,t);g.gain.linearRampToValueAtTime(peak,t+0.006);g.gain.exponentialRampToValueAtTime(0.0001,t+dec);}
+function marimba(m,t){
+  const f=mf(m),g=actx.createGain();env(g,t,0.28,0.4);g.connect(musicGain);
+  const o=actx.createOscillator();o.type='triangle';o.frequency.value=f;o.connect(g);o.start(t);o.stop(t+0.45);
+  const g2=actx.createGain();env(g2,t,0.1,0.12);g2.connect(musicGain);
+  const o2=actx.createOscillator();o2.type='sine';o2.frequency.value=f*4;o2.connect(g2);o2.start(t);o2.stop(t+0.15);
+}
+function bass(m,t){
+  const g=actx.createGain();env(g,t,0.35,0.32);g.connect(musicGain);
+  const o=actx.createOscillator();o.type='sine';o.frequency.value=mf(m);o.connect(g);o.start(t);o.stop(t+0.35);
+}
+function bongo(t,hi){
+  const g=actx.createGain();env(g,t,hi?0.22:0.3,0.14);g.connect(musicGain);
+  const o=actx.createOscillator();o.type='sine';
+  o.frequency.setValueAtTime(hi?430:230,t);o.frequency.exponentialRampToValueAtTime(hi?250:140,t+0.08);
+  o.connect(g);o.start(t);o.stop(t+0.16);
+}
+function shaker(t){
+  const s=actx.createBufferSource();s.buffer=noiseBuf;
+  const f=actx.createBiquadFilter();f.type='highpass';f.frequency.value=6000;
+  const g=actx.createGain();env(g,t,0.05,0.05);
+  s.connect(f);f.connect(g);g.connect(musicGain);s.start(t);s.stop(t+0.07);
+}
+function playStep(s,t){
+  const m=MEL[s];if(m!=null)marimba(m,t);
+  const pos=s%8,bar=Math.floor(s/8);
+  if(pos===0||pos===4)bass(BASS[bar],t);
+  if(pos===2||pos===3||pos===6)bongo(t,true);
+  if(pos===0||pos===5||pos===7)bongo(t,false);
+  shaker(t);
+}
+function startMusic(){
+  if(!actx||musicTimer)return;
+  nextT=actx.currentTime+0.1;stepNo=0;
+  musicTimer=setInterval(()=>{
+    if(actx.state==='suspended')actx.resume();
+    while(nextT<actx.currentTime+0.15){playStep(stepNo%32,nextT);nextT+=STEP;stepNo++;}
+  },25);
+}
+function sfx(kind){
+  if(!actx||muted)return;
+  const t=actx.currentTime,g=actx.createGain();g.connect(sfxGain);
+  if(kind==='eat'){ // "oo-ah" chirp
+    const o=actx.createOscillator();o.type='sawtooth';const f=actx.createBiquadFilter();f.type='lowpass';f.frequency.value=1200;
+    o.frequency.setValueAtTime(420,t);o.frequency.linearRampToValueAtTime(700,t+0.09);o.frequency.linearRampToValueAtTime(330,t+0.26);
+    env(g,t,0.3,0.28);o.connect(f);f.connect(g);o.start(t);o.stop(t+0.3);
+  }else if(kind==='bad'){
+    const o=actx.createOscillator();o.type='square';o.frequency.setValueAtTime(220,t);o.frequency.exponentialRampToValueAtTime(70,t+0.3);
+    env(g,t,0.25,0.32);o.connect(g);o.start(t);o.stop(t+0.34);
+  }else if(kind==='jump'){
+    const o=actx.createOscillator();o.type='sine';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(700,t+0.15);
+    env(g,t,0.2,0.18);o.connect(g);o.start(t);o.stop(t+0.2);
+  }
+}
+$('bMute').onclick=()=>{muted=!muted;if(musicGain)musicGain.gain.value=muted?0:0.5;if(sfxGain)sfxGain.gain.value=muted?0:0.7;$('bMute').textContent=muted?'🔇 Music off':'🔊 Music';};
+
+/* =========================================================
+   CAMERA + MEDIAPIPE (hands + body)
+========================================================= */
+const video=$('video'),overlay=$('overlay'),ctx=overlay.getContext('2d');
+let handLM=null,camReady=false,showPose=true,lastVT=-1,lastTs=0,jumpFlashUntil=0;
+
+async function startCamera(){
+  const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'},audio:false});
+  video.srcObject=stream;await video.play();
+  overlay.width=video.videoWidth||640;overlay.height=video.videoHeight||480;
+  $('cam').style.display='block';camReady=true;
+}
+async function makeLandmarker(Cls,fileset,model,opts){
+  for(const delegate of['GPU','CPU']){
+    try{return await Cls.createFromOptions(fileset,{baseOptions:{modelAssetPath:model,delegate},runningMode:'VIDEO',...opts});}catch(e){console.warn(Cls.name,delegate,e);}
+  }
+  return null;
+}
+async function loadModels(){
+  const fileset=await FilesetResolver.forVisionTasks(WASM);
+  handLM=await makeLandmarker(HandLandmarker,fileset,HAND_MODEL,{numHands:1});
+}
+
+/* ---- neon hand drawing: dots on all 21 points + glowing lines ---- */
+const HAND_COLORS=['#00f6ff','#ff3df2'];
+function neonHand(lms,color){
+  const w=overlay.width,h=overlay.height;
+  ctx.save();ctx.globalCompositeOperation='lighter';ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.beginPath();
+  for(const c of HandLandmarker.HAND_CONNECTIONS){const a=lms[c.start],b=lms[c.end];ctx.moveTo(a.x*w,a.y*h);ctx.lineTo(b.x*w,b.y*h);}
+  ctx.strokeStyle=color;ctx.shadowColor=color;
+  ctx.shadowBlur=30;ctx.globalAlpha=.55;ctx.lineWidth=10;ctx.stroke();
+  ctx.shadowBlur=14;ctx.globalAlpha=1;ctx.lineWidth=3.5;ctx.stroke();
+  ctx.shadowBlur=6;ctx.strokeStyle='#ffffff';ctx.lineWidth=1.3;ctx.stroke();
+  for(const p of lms){
+    const x=p.x*w,y=p.y*h;
+    ctx.beginPath();ctx.arc(x,y,6.5,0,7);ctx.fillStyle=color;ctx.shadowColor=color;ctx.shadowBlur=24;ctx.fill();
+    ctx.beginPath();ctx.arc(x,y,2.6,0,7);ctx.fillStyle='#fff';ctx.shadowBlur=0;ctx.fill();
+  }
+  ctx.restore();
+}
+/* ---- lane guides drawn on the camera preview ---- */
+function drawGuides(){
+  const w=overlay.width,h=overlay.height;
+  ctx.save();ctx.strokeStyle='rgba(255,225,53,.35)';ctx.lineWidth=2;ctx.setLineDash([8,8]);
+  // the preview is mirrored, so these lines match what the player sees
+  for(const f of[1/3,2/3]){ctx.beginPath();ctx.moveTo(w*f,0);ctx.lineTo(w*f,h);ctx.stroke();}
+  ctx.restore();
+}
+
+/* ---- hand-gesture analysis: run / stop / jump / lane ---- */
+const P={lane:0,run:0,open:false,fist:false,pinch:false,wasPinch:false,prevY:null,lastTs:0,jumpCd:0};
+const d2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function analyze(lm,ts){
+  const dt=P.lastTs?clamp((ts-P.lastTs)/1000,0.001,0.2):0.033;P.lastTs=ts;
+  const size=d2(lm[0],lm[9])||0.1;                 // hand scale: wrist to middle-finger base
+  // a finger is curled when its tip is closer to the wrist than its middle joint
+  const curled=[[8,6],[12,10],[16,14],[20,18]].filter(([t,p])=>d2(lm[t],lm[0])<d2(lm[p],lm[0])).length;
+  P.fist=curled>=3;
+  P.pinch=!P.fist&&d2(lm[4],lm[8])/size<0.38;
+  P.open=!P.fist&&!P.pinch&&curled<=1;
+
+  // run speed: open hand or pinch keeps running, fist stops
+  const target=P.fist?0:1;
+  P.run+=(target-P.run)*Math.min(1,dt*6);
+  input.poseWalk=P.run;
+
+  // lane from palm centre (mirrored so moving right = monkey goes right)
+  const px=1-(lm[0].x+lm[5].x+lm[9].x+lm[13].x+lm[17].x)/5;
+  let lane=P.lane;
+  if(px<0.30)lane=-1;else if(px>0.70)lane=1;else if(px>0.37&&px<0.63)lane=0;  // hysteresis bands
+  if(lane!==P.lane){P.lane=lane;setLane(lane);}
+
+  // jump: new pinch, or a quick upward flick of the hand
+  P.jumpCd-=dt;
+  const py=lm[9].y;
+  const vy=P.prevY===null?0:(P.prevY-py)/size/dt; // positive when the hand moves up
+  P.prevY=py;
+  if(P.jumpCd<=0&&((P.pinch&&!P.wasPinch)||vy>4.5)){jump();P.jumpCd=0.6;jumpFlashUntil=performance.now()+400;}
+  P.wasPinch=P.pinch;
+}
+function recenter(){P.lane=0;setLane(0);P.prevY=null;}
+$('bCenter').onclick=recenter;
+
+function detect(){
+  if(!camReady||!handLM||video.readyState<2||video.currentTime===lastVT)return;
+  lastVT=video.currentTime;
+  const w=video.videoWidth,h=video.videoHeight;
+  if(overlay.width!==w||overlay.height!==h){overlay.width=w;overlay.height=h;}
+  ctx.clearRect(0,0,w,h);
+  if(showPose)drawGuides();
+  const ts=Math.max(performance.now(),lastTs+1);lastTs=ts;
+  let res=null;
+  try{res=handLM.detectForVideo(video,ts);}catch(e){}
+  const lm=res&&res.landmarks&&res.landmarks[0];
+  if(lm){
+    analyze(lm,ts);
+    neonHand(lm,P.fist?'#ff3df2':P.pinch?'#ffe135':HAND_COLORS[0]);
+  }else{
+    // no hand visible: monkey slows to a stop
+    P.run*=0.9;input.poseWalk=P.run;P.prevY=null;P.fist=P.pinch=P.open=false;
+  }
+  const now=performance.now();
+  $('pHand').classList.toggle('on',!!lm);
+  $('pWalk').classList.toggle('on',P.run>0.15);
+  $('pWalk').textContent=lm&&P.fist?'✊ STOP':'🖐 RUN';
+  $('pJump').classList.toggle('on',now<jumpFlashUntil);
+  $('pLean').classList.toggle('on',P.lane!==0);
+  $('pLean').textContent=P.lane<0?'← LANE':P.lane>0?'LANE →':'↔ LANE';
+}
+
+/* =========================================================
+   INPUT, UI, MAIN LOOP
+========================================================= */
+addEventListener('keydown',e=>{
+  if(e.repeat&&e.code!=='ArrowUp')return;
+  if(e.code==='ArrowUp'||e.code==='KeyW')input.keyWalk=true;
+  else if(e.code==='Space'){e.preventDefault();jump();}
+  else if(e.code==='ArrowLeft'||e.code==='KeyA')setLane(G.lane-1);
+  else if(e.code==='ArrowRight'||e.code==='KeyD')setLane(G.lane+1);
+  else if(e.code==='KeyC')recenter();
+});
+addEventListener('keyup',e=>{if(e.code==='ArrowUp'||e.code==='KeyW')input.keyWalk=false;});
+$('bCam').onclick=()=>{const big=$('cam').classList.toggle('big');$('bCam').textContent=big?'🔍 Small camera':'🔍 Big camera';};
+$('bPose').onclick=()=>{showPose=!showPose;$('bPose').textContent='🎯 Lane guides: '+(showPose?'on':'off');};
+
+let started=false;
+async function startGame(){
+  const btn=$('startBtn'),st=$('status');
+  btn.disabled=true;
+  initAudio();if(actx.state==='suspended')actx.resume();
+  if(!camReady){
+    st.textContent='Starting camera… (please allow access)';
+    try{await startCamera();}
+    catch(e){st.textContent='Camera unavailable — playing with keyboard (↑ walk, Space jump, ←/→ lanes).';await new Promise(r=>setTimeout(r,1400));}
+  }
+  if(camReady&&!handLM){
+    st.textContent='Loading hand tracking model…';
+    try{await loadModels();}catch(e){console.warn(e);st.textContent='Hand model failed to load — using keyboard.';await new Promise(r=>setTimeout(r,1400));}
+  }
+  resetGame();recenter();
+  $('screen').style.display='none';
+  startMusic();
+}
+$('startBtn').onclick=startGame;
+
+let last=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min((now-last)/1000,0.05);last=now;
+  detect();
+  update(dt,now/1000);
+  renderer.render(scene,camera);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
